@@ -1,0 +1,10 @@
+[package]
+name = "test-nunki"
+version = "0.1.0"
+edition = "2024"
+# Not decoration: the battery runs `cargo deny check`, whose `licenses` stage
+# fails on a crate that declares none — which is what `cargo new` leaves
+# behind.
+license = "Apache-2.0"
+
+[dependencies]

@@ -1,0 +1,60 @@
+# What this project declares to nunki (SPEC 4.1). A mission header beats
+# this file for what it redeclares.
+
+harness: claude-code
+
+# No agent may reach the forge: a slot's origin is unreachable, and an
+# allowlist naming it would undo that. Put your forge's domain here.
+forge: []
+
+stacks:
+  - rust
+
+# How nunki starts the application for the integrator and the security agent
+# (SPEC 4.2). Absent, the stack's own `run.sh` is used; `none` for a library,
+# whose security agent works on the code and the build artefact. A mission
+# header may refine it.
+# run: none
+
+# Which model the agents run on, when the harness takes one. Absent, the
+# harness keeps its own default — `nunki logs` names the one a run used. A
+# mission header may refine it. nunki checks no name: what a name means is the
+# harness's business, and the harness refuses what it does not know.
+# model: claude-sonnet-5
+
+# What the harness does with a permission it would otherwise ask about.
+# Nobody is there to ask in an autonomous container, so the only question is
+# which way the silence falls. `auto` lets the harness's own safety checks
+# decide and nudges the agent to keep working rather than stop for a
+# clarification; `dontAsk` allows only what is pre-approved and denies
+# everything else. Whatever the mode, nunki refuses the prompt itself, so a run
+# never waits for a human who is not there.
+permission_mode: auto
+
+# The project's own Compose file, whose services and networks nunki merges into
+# every system profile. They are lifted once per slot and never stopped
+# between two profiles, so what the integrator laid down survives.
+# services_file: compose.yaml
+
+protected_branches:
+  - main
+  - dev
+
+# Who refuses a push to a protected branch besides nunki's own gate: `forge`
+# (the default) — `nunki check` asks the forge, and an unprotected branch is red.
+# `by_hand` when the forge cannot, as on a private repository on GitHub's
+# free plan, and you hold the rule yourself: `nunki check` does not ask, and
+# says so.
+# forge_protection: by_hand
+
+protected_paths:
+  # Refused outright. `.nunki/**` is here from the start and should stay: it
+  # holds the battery gate 6 replays, the allowlist the firewall is built
+  # from and the Dockerfile the agent runs in — the three things that judge
+  # and fence an agent are not that agent's to rewrite. The integrator may
+  # still amend its launch script there: its own gate 4 is the wiring list
+  # its mission declares, not this one. Add your own paths below.
+  refuse:
+    - .nunki/**
+  # Refused only where the file already exists on the base.
+  refuse_if_exists: []
