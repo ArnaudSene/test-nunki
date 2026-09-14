@@ -45,7 +45,7 @@ protected_branches:
 # `by_hand` when the forge cannot, as on a private repository on GitHub's
 # free plan, and you hold the rule yourself: `nunki check` does not ask, and
 # says so.
-# forge_protection: by_hand
+forge_protection: by_hand
 
 protected_paths:
   # Refused outright. `.nunki/**` is here from the start and should stay: it
