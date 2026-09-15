@@ -1,5 +1,5 @@
 [package]
-name = "test-nunki"
+name = "rgrep"
 version = "0.1.0"
 edition = "2024"
 # Not decoration: the battery runs `cargo deny check`, whose `licenses` stage

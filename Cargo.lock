@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "test-nunki"
+name = "rgrep"
 version = "0.1.0"
