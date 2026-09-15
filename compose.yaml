@@ -1,0 +1,11 @@
+# The services this project's system tests run against. nunki merges this
+# block into every system profile: it lifts them beside the integrator, once
+# per slot, and never stops them between two profiles. The coder never sees
+# them.
+#
+# No named volume on purpose: nothing here has to outlive a slot, and a
+# service naming a volume this file does not declare makes the whole Compose
+# project invalid.
+services:
+  redis:
+    image: redis:8-alpine

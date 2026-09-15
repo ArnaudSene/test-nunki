@@ -34,7 +34,7 @@ permission_mode: auto
 # The project's own Compose file, whose services and networks nunki merges into
 # every system profile. They are lifted once per slot and never stopped
 # between two profiles, so what the integrator laid down survives.
-# services_file: compose.yaml
+services_file: compose.yaml
 
 protected_branches:
   - main
