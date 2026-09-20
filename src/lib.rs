@@ -8,16 +8,53 @@ use std::path::{Path, PathBuf};
 
 /// Lines of `contents` that contain `pattern` as a literal substring.
 pub fn matching_lines<'a>(pattern: &str, contents: &'a str) -> Vec<&'a str> {
-    contents
-        .lines()
-        .filter(|line| line.contains(pattern))
-        .collect()
+    matches(pattern, contents, false)
+}
+
+/// Lines of `contents` that contain `pattern` as a literal substring, case
+/// differences ignored.
+///
+/// Folding is ASCII-only (`'A'..='Z'` against `'a'..='z'`): `"Straße"` and
+/// `"STRASSE"`, or `"café"` and `"CAFÉ"`, do not match one another here,
+/// since folding an accented letter needs full Unicode case folding, which
+/// this function does not attempt.
+pub fn matching_lines_ignoring_case<'a>(pattern: &str, contents: &'a str) -> Vec<&'a str> {
+    matches(pattern, contents, true)
+}
+
+fn matches<'a>(pattern: &str, contents: &'a str, ignore_case: bool) -> Vec<&'a str> {
+    if ignore_case {
+        let pattern = pattern.to_ascii_lowercase();
+        contents
+            .lines()
+            .filter(|line| line.to_ascii_lowercase().contains(&pattern))
+            .collect()
+    } else {
+        contents
+            .lines()
+            .filter(|line| line.contains(pattern))
+            .collect()
+    }
 }
 
 /// Reads `path` and returns the lines that contain `pattern`.
 pub fn search_file(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    search_file_matching(pattern, path, false)
+}
+
+/// Reads `path` and returns the lines that contain `pattern`, case
+/// differences ignored (see [`matching_lines_ignoring_case`]).
+pub fn search_file_ignoring_case(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    search_file_matching(pattern, path, true)
+}
+
+fn search_file_matching(
+    pattern: &str,
+    path: &str,
+    ignore_case: bool,
+) -> Result<Vec<String>, String> {
     let contents = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    Ok(matching_lines(pattern, &contents)
+    Ok(matches(pattern, &contents, ignore_case)
         .into_iter()
         .map(str::to_owned)
         .collect())
@@ -57,30 +94,56 @@ pub fn walk_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 /// when `path` is a directory, one `"file:line"` per match so a line can be
 /// traced back to the file it came from.
 pub fn search_path(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    search_path_matching(pattern, path, false)
+}
+
+/// Searches `path` for `pattern` as [`search_path`] does, case differences
+/// ignored (see [`matching_lines_ignoring_case`]).
+pub fn search_path_ignoring_case(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    search_path_matching(pattern, path, true)
+}
+
+fn search_path_matching(
+    pattern: &str,
+    path: &str,
+    ignore_case: bool,
+) -> Result<Vec<String>, String> {
     let root = Path::new(path);
     let metadata = fs::metadata(root).map_err(|e| format!("{path}: {e}"))?;
     if !metadata.is_dir() {
-        return search_file(pattern, path);
+        return search_file_matching(pattern, path, ignore_case);
     }
 
-    let mut matches = Vec::new();
+    let mut found = Vec::new();
     for file in walk_files(root)? {
         let contents = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-        for line in matching_lines(pattern, &contents) {
-            matches.push(format!("{}:{line}", file.display()));
+        for line in matches(pattern, &contents, ignore_case) {
+            found.push(format!("{}:{line}", file.display()));
         }
     }
-    Ok(matches)
+    Ok(found)
 }
 
-/// Runs rgrep over `args` (`[pattern, path]`), writing matches to `stdout`
-/// and problems to `stderr`. `path` may be a file or a directory, searched
-/// recursively.
+/// Runs rgrep over `args` (`[-i] <pattern> <path>`), writing matches to
+/// `stdout` and problems to `stderr`. `path` may be a file or a directory,
+/// searched recursively. `-i`, when it is the first argument, makes the
+/// search ignore ASCII case (see [`matching_lines_ignoring_case`]); any
+/// other argument starting with `-` is refused by name rather than taken
+/// for the pattern.
 ///
 /// The exit code follows grep's own convention: 0 when a line matched, 1
 /// when none did, 2 when the run could not even be attempted.
 pub fn run(args: &[String], stdout: &mut impl Write, stderr: &mut impl Write) -> u8 {
-    let (pattern, path) = match args {
+    let (ignore_case, rest) = match args.split_first() {
+        Some((flag, rest)) if flag == "-i" => (true, rest),
+        Some((flag, _)) if flag.starts_with('-') => {
+            writeln!(stderr, "rgrep: unknown flag: {flag}").ok();
+            return 2;
+        }
+        _ => (false, args),
+    };
+
+    let (pattern, path) = match rest {
         [pattern, path] => (pattern, path),
         _ => {
             writeln!(stderr, "usage: rgrep <pattern> <file-or-directory>").ok();
@@ -88,7 +151,13 @@ pub fn run(args: &[String], stdout: &mut impl Write, stderr: &mut impl Write) ->
         }
     };
 
-    match search_path(pattern, path) {
+    let result = if ignore_case {
+        search_path_ignoring_case(pattern, path)
+    } else {
+        search_path(pattern, path)
+    };
+
+    match result {
         Ok(lines) => {
             for line in &lines {
                 writeln!(stdout, "{line}").ok();
@@ -362,5 +431,105 @@ mod tests {
         assert_eq!(code, 1);
         assert!(stdout.is_empty());
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn matching_lines_ignoring_case_matches_regardless_of_ascii_case() {
+        let text = "Apple\napple\nAPPLE\nbanana\n";
+        assert_eq!(
+            matching_lines_ignoring_case("apple", text),
+            vec!["Apple", "apple", "APPLE"]
+        );
+    }
+
+    #[test]
+    fn matching_lines_ignoring_case_is_still_empty_when_nothing_matches() {
+        let text = "one\ntwo\nthree\n";
+        assert!(matching_lines_ignoring_case("XYZ", text).is_empty());
+    }
+
+    #[test]
+    fn matching_lines_ignoring_case_does_not_fold_non_ascii_case() {
+        // "café" and "CAFÉ" differ only in the accented letter's case:
+        // ASCII-only folding leaves accented letters untouched, so they
+        // must not match here even though the flag is set.
+        let text = "CAFÉ\n";
+        assert!(matching_lines_ignoring_case("café", text).is_empty());
+    }
+
+    #[test]
+    fn search_file_ignoring_case_reads_and_filters_a_real_file() {
+        let path = temp_file("Foo\nbar FOO\nbaz\n");
+        let result = search_file_ignoring_case("foo", path.to_str().unwrap()).unwrap();
+        assert_eq!(result, vec!["Foo", "bar FOO"]);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn search_path_ignoring_case_searches_every_file_under_a_directory() {
+        let dir = temp_dir();
+        fs::write(dir.join("one.txt"), "Foo\nbar\n").unwrap();
+        fs::create_dir(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub/two.txt"), "FOO again\nnothing here\n").unwrap();
+
+        let mut matches = search_path_ignoring_case("foo", dir.to_str().unwrap()).unwrap();
+        matches.sort();
+
+        let mut expected = vec![
+            format!("{}:Foo", dir.join("one.txt").display()),
+            format!("{}:FOO again", dir.join("sub/two.txt").display()),
+        ];
+        expected.sort();
+        assert_eq!(matches, expected);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn run_with_i_flag_matches_case_insensitively() {
+        let path = temp_file("Hello\nWORLD\nhello world\n");
+        let args = vec![
+            "-i".to_string(),
+            "hello".to_string(),
+            path.to_str().unwrap().to_string(),
+        ];
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run(&args, &mut stdout, &mut stderr);
+
+        assert_eq!(code, 0);
+        assert_eq!(String::from_utf8(stdout).unwrap(), "Hello\nhello world\n");
+        assert!(stderr.is_empty());
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn run_without_i_flag_stays_case_sensitive() {
+        let path = temp_file("Hello\nhello\n");
+        let args = vec!["hello".to_string(), path.to_str().unwrap().to_string()];
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run(&args, &mut stdout, &mut stderr);
+
+        assert_eq!(code, 0);
+        assert_eq!(String::from_utf8(stdout).unwrap(), "hello\n");
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn run_refuses_an_unknown_flag_and_names_it() {
+        let args = vec!["-x".to_string(), "needle".to_string(), ".".to_string()];
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run(&args, &mut stdout, &mut stderr);
+
+        assert_eq!(code, 2);
+        assert!(stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(stderr).unwrap(),
+            "rgrep: unknown flag: -x\n"
+        );
     }
 }
